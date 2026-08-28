@@ -16,18 +16,29 @@ class InferenceResult:
 
 
 @lru_cache(maxsize=2)
-def _local_pipeline(model_id: str):
-    from transformers import pipeline
-    return pipeline("visual-question-answering", model=model_id)
+def _local_model(model_id: str):
+    """Load BLIP directly instead of the removed Transformers VQA pipeline."""
+    import torch
+    from transformers import BlipForQuestionAnswering, BlipProcessor
+
+    processor = BlipProcessor.from_pretrained(model_id)
+    model = BlipForQuestionAnswering.from_pretrained(model_id)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model.to(device)
+    model.eval()
+    return processor, model, device
 
 
 def ask_local(image: Image.Image, question: str, settings: Settings) -> InferenceResult:
     try:
-        predictions = _local_pipeline(settings.model_id)(image=image, question=question, top_k=1)
-        best = predictions[0] if isinstance(predictions, list) else predictions
-        return InferenceResult(str(best.get("answer", "No answer returned")), _score(best.get("score")), f"Local: {settings.model_id}")
+        processor, model, device = _local_model(settings.model_id)
+        inputs = processor(images=image, text=question, return_tensors="pt")
+        inputs = {name: value.to(device) for name, value in inputs.items()}
+        output = model.generate(**inputs, max_new_tokens=30)
+        answer = processor.decode(output[0], skip_special_tokens=True).strip()
+        return InferenceResult(answer or "No answer returned", None, f"Local BLIP: {settings.model_id} ({device})")
     except Exception as exc:  # surfaced cleanly in the UI
-        raise RuntimeError(f"Local model could not answer. Check the model download, memory, and internet connection. Details: {exc}") from exc
+        raise RuntimeError(f"Local model could not answer. Check the model download, memory, model compatibility, and internet connection. Details: {exc}") from exc
 
 
 def ask_api(image: Image.Image, question: str, settings: Settings) -> InferenceResult:
