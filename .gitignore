@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Secrets and local configuration
+.env
+*.env
+
+# ML and generated artifacts
+models/
+checkpoints/
+outputs/
+*.safetensors
+*.bin
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
