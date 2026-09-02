@@ -6,6 +6,7 @@ from datetime import datetime
 import gradio as gr
 from PIL import Image
 
+from src.satquery.analytics import compare_images, preliminary_risk_flags, visual_feature_scout
 from src.satquery.config import Settings
 from src.satquery.service import SatQueryService
 
@@ -43,6 +44,19 @@ def analyze(image: Image.Image | None, question: str, inference_mode: str, works
             "### Evidence\nNo model answer was generated. The uploaded image remains local to this session.",
             "● ANALYSIS ERROR — CHECK MODEL STATUS",
         )
+
+
+def run_change_analysis(before: Image.Image | None, after: Image.Image | None):
+    if before is None or after is None:
+        return None, {"status": "waiting_for_images", "next_step": "Upload both before and after images."}
+    result = compare_images(before, after)
+    return result.heatmap, result.summary()
+
+
+def run_feature_scout(image: Image.Image | None):
+    if image is None:
+        return {"status": "waiting_for_image", "next_step": "Upload a scene in the main workspace first."}
+    return {"feature_scout": visual_feature_scout(image), "risk_readiness": preliminary_risk_flags(image)}
 
 
 CSS = """
@@ -84,6 +98,20 @@ with gr.Blocks(theme=gr.themes.Base(), css=CSS, title="SatQuery AI | Vision-Lang
             gr.Examples(examples=[["Is there a road visible in this scene?"], ["What is the dominant land cover?"], ["Are buildings visible?"], ["Is there a river or lake visible?"]], inputs=question, label="Suggested queries")
             runtime_status = gr.Textbox(value="● READY — WAITING FOR SCENE", label="Pipeline status", interactive=False)
     gr.HTML("<div style='height:18px'></div>")
+    with gr.Accordion("PHASE 2 / CHANGE, FEATURE & RISK WORKBENCH", open=False):
+        gr.Markdown("**Working baseline:** visual image comparison and RGB feature scouting. Uploads should depict the same area at a similar scale. Co-registration, geospatial area measurements, thermal fire evidence, and risk models are separate Phase 2 training tracks.")
+        with gr.Row(equal_height=False):
+            with gr.Column():
+                before_image = gr.Image(type="pil", label="Before image")
+            with gr.Column():
+                after_image = gr.Image(type="pil", label="After image")
+            with gr.Column():
+                change_button = gr.Button("COMPARE SCENES", variant="primary")
+                change_heatmap = gr.Image(label="Visual change heatmap", interactive=False)
+                change_out = gr.JSON(label="Change summary")
+        with gr.Row():
+            feature_button = gr.Button("SCOUT VISIBLE FEATURES & RISK INPUTS")
+            feature_out = gr.JSON(label="Feature/risk readiness")
     with gr.Row(equal_height=False):
         with gr.Column(scale=7, min_width=470, elem_classes="console"):
             gr.HTML("<h3>03 / ANALYSIS RESULT</h3>")
@@ -101,6 +129,8 @@ with gr.Blocks(theme=gr.themes.Base(), css=CSS, title="SatQuery AI | Vision-Lang
     workspace_mode.change(mode_note, workspace_mode, workspace_note)
     submit.click(analyze, [image_input, question, inference_mode, workspace_mode], [answer_out, route_out, evidence_out, runtime_status])
     question.submit(analyze, [image_input, question, inference_mode, workspace_mode], [answer_out, route_out, evidence_out, runtime_status])
+    change_button.click(run_change_analysis, [before_image, after_image], [change_heatmap, change_out])
+    feature_button.click(run_feature_scout, image_input, feature_out)
 
 if __name__ == "__main__":
     demo.launch(server_name=settings.host, server_port=settings.port, show_error=True)
